@@ -1,15 +1,17 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Challenge, HABIT_COLORS, Habit } from './types';
 
-const HABITS_KEY = 'habits_v2';
-const CHALLENGES_KEY = 'challenges_v1';
-const ONBOARDED_KEY = 'has_onboarded';
+const key = {
+  habits: (uid?: string) => (uid ? `habits_v2_${uid}` : 'habits_v2'),
+  challenges: (uid?: string) => (uid ? `challenges_v1_${uid}` : 'challenges_v1'),
+  onboarded: (uid?: string) => (uid ? `has_onboarded_${uid}` : 'has_onboarded'),
+};
 
-export async function loadHabits(): Promise<Habit[]> {
+export async function loadHabits(userId?: string): Promise<Habit[]> {
   try {
-    const raw = await AsyncStorage.getItem(HABITS_KEY);
+    const raw = await AsyncStorage.getItem(key.habits(userId));
     if (raw) return JSON.parse(raw);
-    // Migrate from v1
+    // Migrate from v1 (pre-auth anonymous data)
     const rawV1 = await AsyncStorage.getItem('habits_v1');
     if (rawV1) {
       const old: any[] = JSON.parse(rawV1);
@@ -17,14 +19,14 @@ export async function loadHabits(): Promise<Habit[]> {
         id: h.id,
         name: h.name,
         emoji: h.emoji,
-        type: 'daily',
+        type: 'daily' as const,
         targetCount: 1,
         completions: (h.completedDates ?? []).map((date: string) => ({ date, count: 1 })),
         createdAt: h.createdAt,
         color: HABIT_COLORS[i % HABIT_COLORS.length],
       }));
       await AsyncStorage.removeItem('habits_v1');
-      await AsyncStorage.setItem(HABITS_KEY, JSON.stringify(migrated));
+      await AsyncStorage.setItem(key.habits(userId), JSON.stringify(migrated));
       return migrated;
     }
     return [];
@@ -33,27 +35,27 @@ export async function loadHabits(): Promise<Habit[]> {
   }
 }
 
-export async function saveHabits(habits: Habit[]): Promise<void> {
-  await AsyncStorage.setItem(HABITS_KEY, JSON.stringify(habits));
+export async function saveHabits(habits: Habit[], userId?: string): Promise<void> {
+  await AsyncStorage.setItem(key.habits(userId), JSON.stringify(habits));
 }
 
-export async function loadChallenges(): Promise<Challenge[]> {
+export async function loadChallenges(userId?: string): Promise<Challenge[]> {
   try {
-    const raw = await AsyncStorage.getItem(CHALLENGES_KEY);
+    const raw = await AsyncStorage.getItem(key.challenges(userId));
     return raw ? JSON.parse(raw) : [];
   } catch {
     return [];
   }
 }
 
-export async function saveChallenges(challenges: Challenge[]): Promise<void> {
-  await AsyncStorage.setItem(CHALLENGES_KEY, JSON.stringify(challenges));
+export async function saveChallenges(challenges: Challenge[], userId?: string): Promise<void> {
+  await AsyncStorage.setItem(key.challenges(userId), JSON.stringify(challenges));
 }
 
-export async function getHasOnboarded(): Promise<boolean> {
-  return (await AsyncStorage.getItem(ONBOARDED_KEY)) === 'true';
+export async function getHasOnboarded(userId?: string): Promise<boolean> {
+  return (await AsyncStorage.getItem(key.onboarded(userId))) === 'true';
 }
 
-export async function setHasOnboarded(): Promise<void> {
-  await AsyncStorage.setItem(ONBOARDED_KEY, 'true');
+export async function setHasOnboarded(userId?: string): Promise<void> {
+  await AsyncStorage.setItem(key.onboarded(userId), 'true');
 }

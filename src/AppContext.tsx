@@ -1,5 +1,16 @@
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { loadChallenges, loadHabits, saveChallenges, saveHabits } from './storage';
+import {
+  diffChallenges,
+  diffHabits,
+  fetchAllData,
+  pushAddedChallenges,
+  pushAddedHabits,
+  pushChallengeStatusChanges,
+  pushDeletedChallenges,
+  pushDeletedHabits,
+  syncHabitCompletions,
+} from './sync';
 import { Challenge, Habit } from './types';
 import { computeChallengeStatus } from './utils';
 
@@ -9,46 +20,98 @@ type AppContextType = {
   updateHabits: (habits: Habit[]) => void;
   updateChallenges: (challenges: Challenge[]) => void;
   loaded: boolean;
+  syncing: boolean;
 };
 
 const AppContext = createContext<AppContextType | null>(null);
 
-export function AppProvider({ children }: { children: React.ReactNode }) {
+export function AppProvider({ children, userId }: { children: React.ReactNode; userId: string }) {
   const [habits, setHabits] = useState<Habit[]>([]);
   const [challenges, setChallenges] = useState<Challenge[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+
+  // Refs for diffing without stale closures
+  const habitsRef = useRef<Habit[]>([]);
+  const challengesRef = useRef<Challenge[]>([]);
 
   useEffect(() => {
-    Promise.all([loadHabits(), loadChallenges()]).then(([h, c]) => {
+    setLoaded(false);
+    setHabits([]);
+    setChallenges([]);
+    habitsRef.current = [];
+    challengesRef.current = [];
+
+    // 1. Paint from cache immediately — zero network wait
+    Promise.all([loadHabits(userId), loadChallenges(userId)]).then(([h, c]) => {
+      const synced = reconcileStatuses(h, c);
       setHabits(h);
-      // Sync any challenges whose status has drifted (e.g. app opened after missing a day)
-      const synced = c.map((ch) => {
-        if (ch.status !== 'active') return ch;
-        const habit = h.find((hb) => hb.id === ch.habitId);
-        if (!habit) return ch;
-        const status = computeChallengeStatus(ch, habit);
-        return status !== 'active' ? { ...ch, status } : ch;
-      });
+      habitsRef.current = h;
       setChallenges(synced);
-      if (synced.some((ch, i) => ch.status !== c[i].status)) {
-        saveChallenges(synced);
-      }
+      challengesRef.current = synced;
       setLoaded(true);
     });
-  }, []);
 
-  function updateHabits(h: Habit[]) {
-    setHabits(h);
-    saveHabits(h);
+    // 2. Reconcile with Supabase in the background
+    setSyncing(true);
+    fetchAllData(userId)
+      .then(({ habits: h, challenges: c }) => {
+        const synced = reconcileStatuses(h, c);
+        setHabits(h);
+        habitsRef.current = h;
+        setChallenges(synced);
+        challengesRef.current = synced;
+        saveHabits(h, userId);
+        saveChallenges(synced, userId);
+        setLoaded(true);
+      })
+      .catch(() => {
+        // Offline — cached view is already rendered, nothing to do
+      })
+      .finally(() => setSyncing(false));
+  }, [userId]);
+
+  function reconcileStatuses(h: Habit[], c: Challenge[]): Challenge[] {
+    return c.map((ch) => {
+      if (ch.status !== 'active') return ch;
+      const habit = h.find((hb) => hb.id === ch.habitId);
+      if (!habit) return ch;
+      const status = computeChallengeStatus(ch, habit);
+      return status !== 'active' ? { ...ch, status } : ch;
+    });
   }
 
-  function updateChallenges(c: Challenge[]) {
-    setChallenges(c);
-    saveChallenges(c);
+  function updateHabits(next: Habit[]) {
+    const prev = habitsRef.current;
+    setHabits(next);
+    habitsRef.current = next;
+    saveHabits(next, userId); // instant local cache
+
+    // Push diff to Supabase in background
+    const { added, deleted, completionChanged } = diffHabits(prev, next);
+    Promise.all([
+      pushAddedHabits(added, userId),
+      pushDeletedHabits(deleted),
+      ...completionChanged.map((h) => syncHabitCompletions(h, userId)),
+    ]).catch(console.warn);
+  }
+
+  function updateChallenges(next: Challenge[]) {
+    const prev = challengesRef.current;
+    setChallenges(next);
+    challengesRef.current = next;
+    saveChallenges(next, userId); // instant local cache
+
+    const { added, deleted, statusChanged } = diffChallenges(prev, next);
+    Promise.all([
+      pushAddedChallenges(added, userId),
+      pushDeletedChallenges(deleted),
+      pushChallengeStatusChanges(statusChanged),
+    ]).catch(console.warn);
   }
 
   return (
-    <AppContext.Provider value={{ habits, challenges, updateHabits, updateChallenges, loaded }}>
+    <AppContext.Provider value={{ habits, challenges, updateHabits, updateChallenges, loaded, syncing }}>
       {children}
     </AppContext.Provider>
   );

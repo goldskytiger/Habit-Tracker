@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useApp } from '../AppContext';
+import { useAuth } from '../auth/AuthContext';
 import { requestPermission, scheduleReminders } from '../notifications';
 import { setHasOnboarded } from '../storage';
 import { EMOJIS, HABIT_COLORS, Habit, HabitType } from '../types';
@@ -23,6 +24,7 @@ const PURPLE = '#6C47FF';
 
 export function OnboardingScreen({ onComplete }: Props) {
   const { updateHabits, updateChallenges } = useApp();
+  const { user } = useAuth();
   const [step, setStep] = useState(0);
   const [habitName, setHabitName] = useState('');
   const [habitEmoji, setHabitEmoji] = useState(EMOJIS[0]);
@@ -79,7 +81,7 @@ export function OnboardingScreen({ onComplete }: Props) {
         await scheduleReminders([createdHabit.name]);
       }
     }
-    await setHasOnboarded();
+    await setHasOnboarded(user?.id);
     onComplete();
   }
 

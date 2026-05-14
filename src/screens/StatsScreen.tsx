@@ -1,12 +1,21 @@
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useApp } from '../AppContext';
+import { useAuth } from '../auth/AuthContext';
 import { calcStreak, last7Days, shortDayLabel, todayStr } from '../utils';
 
 const PURPLE = '#6C47FF';
 
 export function StatsScreen() {
   const { habits } = useApp();
+  const { signOut, user } = useAuth();
+
+  function handleSignOut() {
+    Alert.alert('Sign out?', 'You can sign back in anytime.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Sign Out', style: 'destructive', onPress: signOut },
+    ]);
+  }
 
   if (habits.length === 0) {
     return (
@@ -142,6 +151,14 @@ export function StatsScreen() {
             );
           })}
         </View>
+
+        {/* Account */}
+        <View style={styles.section}>
+          <Text style={styles.accountEmail}>{user?.email}</Text>
+          <TouchableOpacity style={styles.signOutBtn} onPress={handleSignOut}>
+            <Text style={styles.signOutText}>Sign Out</Text>
+          </TouchableOpacity>
+        </View>
       </ScrollView>
     </SafeAreaView>
   );
@@ -204,4 +221,13 @@ const styles = StyleSheet.create({
   emptyEmoji: { fontSize: 56, marginBottom: 12 },
   emptyTitle: { fontSize: 20, fontWeight: '700', color: '#333', marginBottom: 6 },
   emptySub: { fontSize: 15, color: '#888' },
+  accountEmail: { fontSize: 13, color: '#AAA', textAlign: 'center', marginBottom: 12 },
+  signOutBtn: {
+    borderWidth: 1.5,
+    borderColor: '#E8E8E8',
+    borderRadius: 14,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  signOutText: { fontSize: 15, fontWeight: '600', color: '#888' },
 });
